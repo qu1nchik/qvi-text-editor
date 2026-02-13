@@ -6,87 +6,178 @@
 #include <fcntl.h>
 #include <string.h>
 #include <errno.h>
-#include "definitions.h"
+#include <sys/stat.h>
 
 typedef struct {
   char *data;
   int length;
-  int capacity;
+  size_t capacity;
 } Line;
 
 typedef struct {
   Line *lines;
+  Line *current_line;
+  size_t size;
+  int current_row;
   int rows;
 } Buffer;
+
+typedef struct {
+  char *filename;
+  Buffer *buf;
+} Editor;
 
 struct termios orig_termios;
 struct termios new_termios;
 
-int init_line(const char *input_line, Line *line) {
+#include "../local/definitions.h"
+#include "../local/utils.h"
+
+
+void init_line(const char *str, Line *line) {
   int i;
-  for (i = 0; input_line[i] != '\n'; i++) {
-    line->data[i] = input_line[i];
-    line->length++;
+  for (i = 0; str[i] != '\n' && str[i] != '\0' ;i++) {
+    // empty, just counting
   }
-  line->data[i] = input_line[i];
-  line->length++;
+  
+  line->length = i; // len without \0, pure metadata length, for example: "hello" it`s 5 not including \0
+  line->capacity = i + 1; // memory for line, including \0, for example: "hello\0" 6 bytes
+
+  line->data = malloc(line->capacity); 
+  
+  for (i = 0; i < line->length ;i++) {
+    line->data[i] = str[i];
+  }
+  line->data[i] = '\0';
+}
+
+int init_buffer(Buffer *buf, const char *filename) {
+  //Getting size of file in bytes
+  struct stat st;
+  if (stat(filename, &st) == -1 ) return -1;
+  buf->size = st.st_size;
+  
+  char str[1024];
+  Line temp_line;
+  int i = 0;
+  int buf_pos = 0;
+  int line_pos = 0;
+  int fd = open(filename, O_RDONLY);
+  
+  if (fd == -1) {
+    perror("open");
+    return -1;
+  }
+
+  //Allocating memory for n bytes + \0 to bufferize the temp buffer
+  char *temp = malloc(buf->size + 1);
+
+  read(fd, temp, buf->size);
+  temp[buf->size] = '\0';
+  
+  //Counting Rows
+  while (temp[buf_pos] != '\0') {
+    if (temp[buf_pos] == '\n') {
+      buf->rows++;
+      buf_pos++;
+    }
+    buf_pos++;
+  }
+  buf->rows++;
+  buf_pos = 0;
+
+  //Allocating memory for array of structures
+  buf->lines = malloc(sizeof(Line) * buf->rows);
+
+  // Filling the array
+  while (temp[buf_pos] != '\0') {
+    if (temp[buf_pos] == '\n') {
+      str[line_pos] = '\n';
+      init_line(str, &temp_line);
+      buf->lines[i] = temp_line;
+      line_pos = 0;
+      buf_pos++;
+      i++;
+    }
+    str[line_pos++] = temp[buf_pos++];
+  }
+  if (temp[buf_pos] == '\0') {
+    str[line_pos] = '\n';
+    init_line(str, &temp_line);
+    buf->lines[i] = temp_line;
+  }
+  // Free the temp buffer to avoid segfault`s
+  free(temp_line.data);
+  buf->current_row = 0;
+  buf->current_line = buf->lines;
   return 0;
 }
-int init_buffer(int fd, Buffer buf) {
-  int i;
+
+void move_up(Buffer *buf) {
+  if (buf->current_row != 0) {
+    buf->current_line = &buf->lines[--buf->current_row];
+  }
+}
+
+void move_down(Buffer *buf) {
+  if (buf->current_row != buf->rows - 1) {
+    buf->current_line = &buf->lines[++buf->current_row];
+  }
+}
+
+void show_current(Buffer *buf) {
+  printf("%s\n", buf->current_line->data);
 }
 
 int main(int argc, char **argv) {
   char c;
+  Editor Qvi;
+  if (argc == 2) {
+    Qvi.filename = argv[1];
+  } 
+  else {
+    printf("usage: ./qvi *file*\n");
+    return 1;
+  }
+
+  Qvi.buf = malloc(sizeof(Buffer));
+  init_buffer(Qvi.buf, Qvi.filename);
+
   tcgetattr(0, &orig_termios);
   enable_raw_mode();
+
   while (1) {
     c = Read_Key();
-    if (c != 0) {
-      printf("%d\n", c);
-    }
-    if (c == KEY_CTRL_C) {
-      disable_raw_mode();
-      break;
+    switch (c) {
+      case 'k':
+        move_up(Qvi.buf);
+        break;
+
+      case 'j':
+        move_down(Qvi.buf);
+        break;
+
+      case 'p':
+        show_current(Qvi.buf);
+        break;
+
+      case KEY_CTRL_C:
+        disable_raw_mode();
+        break;
+      default:
+        if (c != 0) {
+          printf("%d\n", c);
+        }
     }
   }
   return 0;
 }
 
-uint8_t Read_Key() {
-  uint8_t c;
-  int n;
-
-  n = read(0, &c, 1);
-
-  if (n == 1) {
-    return c;
+void free_buffer(Buffer *buf) {
+  int i;
+  for (i = 0; i < buf->rows;i++) {
+    free(buf->lines[i].data);
   }
-
-  if (n == -1) {
-    perror("read");
-    exit(1);
-  }
-}
-
-void enable_raw_mode() {
-  new_termios = orig_termios;
-  tcgetattr(0, &new_termios);
-  // setting up the flags
-  new_termios.c_lflag &= ~(ICANON); 
-  new_termios.c_lflag &= ~(ECHO); 
-  new_termios.c_lflag &= ~(ISIG); 
-  new_termios.c_cc[VMIN] = 0;
-  new_termios.c_cc[VTIME] = 1;
-
-  tcsetattr(0, TCSAFLUSH, &new_termios);
-
-  // turning on the alt buffer
-  printf("%s",ALT_BUFFER_ON);
-  printf("%s",CLEAR_AND_GOTO_START);
-  printf("You are in alternative buffer!\n");
-}
-
-void disable_raw_mode() {
-  tcsetattr(0, TCSAFLUSH, &orig_termios);
+  free(buf->lines);
+  buf->current_line = NULL;
 }
