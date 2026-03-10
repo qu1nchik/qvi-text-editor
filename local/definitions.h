@@ -1,7 +1,11 @@
-// Raw input
-#define ALT_BUFFER_ON "\x1b[?1049h"
-#define ALT_BUFFER_OFF "\x1b[?1049l"
-#define CLEAR_AND_GOTO_START "\x1b[2J\x1b[H"
+// Alt buffer stuff 
+#define ALT_BUFFER_ON "\033[?1049h"
+#define ALT_BUFFER_OFF "\033[?1049l"
+#define CLEAR_AND_GOTO_START "\033[2J\033[H"
+#define GOTO_START "\033[H"
+#define HIDE_CURSOR "\033[?25l"
+#define SHOW_CURSOR "\033[?25h"
+
 
 // ASCII hotkeys(hex)
 #define KEY_ESC     0x1B    // ESC = 27
@@ -16,21 +20,39 @@
 #define KEY_CTRL_S  0x13    // Ctrl+S
 #define KEY_CTRL_Z  0x1A    // Ctrl+Z
 
-// Escape sequences (hex)
-#define ESC_SEQ     0x1B    // Escape
-#define CSI         0x5B    // '[' после ESC
-#define ARROW_UP    0x41    // 'A'
-#define ARROW_DOWN  0x42    // 'B'
-#define ARROW_RIGHT 0x43    // 'C'
-#define ARROW_LEFT  0x44    // 'D'
+// Modes macro
+#define NORMAL 1
+#define INSERT 2
+#define COMMAND 3
 
 // Functions
 
+// Utils
 void enable_raw_mode(void);
 void disable_raw_mode(void);
 uint8_t Read_Key(void);
+void free_buffer(Editor *ed);
+void draw_screen(Editor *ed);
+
+//Init core modules functions
 void init_line(const char *str, Line *line);
 int init_buffer(Buffer *buf, const char *filename);
-void move_up(Buffer *buf);
-void move_down(Buffer *buf);
-void show_current(Buffer *buf);
+void init_editor(Editor *ed);
+
+// Movement
+void move_up(Editor *ed);
+void move_down(Editor *ed);
+void move_right(Editor *ed);
+void move_left(Editor *ed);
+
+
+// Modes
+void normal_mode(Editor *ed);
+void insert_mode(Editor *ed);
+void command_mode(Editor *ed);
+
+// Inclusions
+#include "../src/init.c"
+#include "../src/utils.c"
+#include "../src/move.c"
+#include "../src/modes.c"

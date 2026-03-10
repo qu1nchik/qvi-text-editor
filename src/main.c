@@ -1,183 +1,114 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <termios.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <string.h>
 #include <errno.h>
 #include <sys/stat.h>
+#include <sys/ioctl.h>
 
 typedef struct {
   char *data;
+    // pointer to the line
+  
   int length;
+    // pure length,hello - 5
+  
+  size_t size;
+    // the current memory size for line including \n and \0,hello - 7 because of the hello\n\0
+  
   size_t capacity;
+    // quantity of current allocated memory for line, equals size * 2 when size == capacity - 1
+  
 } Line;
 
 typedef struct {
   Line *lines;
+    // Lines array
+  
   Line *current_line;
+    // Pointer to the current line in the text
+  
   size_t size;
+    // Size of file(before the changes)
+  
   int current_row;
+    // Position of the current row in the text
+  
   int rows;
+    // Rows quantity
+
 } Buffer;
 
 typedef struct {
+  int x;
+    // X position of cursor
+
+  int y;
+    // Y position of cursor
+  
+  int max_x;
+    /* Last maximum value of x,for example hello\n\0 - length = 5, and the next line is qvi\n\0 - length 3,
+       so we moved on to x = 5 y = 1 and ("o" in hello) and at this point this value equal 5,we pressed down
+       and here`s the important moment - the cursor x is 3 now ("i" in qvi) cuz max > current_line->length(3 for qvi), but the
+       max value is still remembered as 5, this means that if we are going to move on next line which length >= max_x
+       (for example "world") we will be on the 5 position relatively x.
+       Thats basically Vim/Neovim feature(and yup i stoled this, idc btw :>) */
+
+} Cursor;
+
+typedef struct {
+  int screen_rows;
+    // Rows of Viewport
+
+  int screen_cols;
+    // Cols of Viewport
+
+  int row_offset;
+    // First visible line
+  
+  int col_offset;
+    // First visible col
+  
+} Viewport;
+
+typedef struct {
   char *filename;
-  Buffer *buf;
+  int current_mode;
+  bool is_new;
+
+  //Modules of the editor
+  Buffer *buf; 
+  Cursor *cur;
+  Viewport *viewport;
 } Editor;
 
 struct termios orig_termios;
 struct termios new_termios;
 
 #include "../local/definitions.h"
-#include "../local/utils.h"
-
-
-void init_line(const char *str, Line *line) {
-  int i;
-  for (i = 0; str[i] != '\n' && str[i] != '\0' ;i++) {
-    // empty, just counting
-  }
-  
-  line->length = i; // len without \0, pure metadata length, for example: "hello" it`s 5 not including \0
-  line->capacity = i + 1; // memory for line, including \0, for example: "hello\0" 6 bytes
-
-  line->data = malloc(line->capacity); 
-  
-  for (i = 0; i < line->length ;i++) {
-    line->data[i] = str[i];
-  }
-  line->data[i] = '\0';
-}
-
-int init_buffer(Buffer *buf, const char *filename) {
-  //Getting size of file in bytes
-  struct stat st;
-  if (stat(filename, &st) == -1 ) return -1;
-  buf->size = st.st_size;
-  
-  char str[1024];
-  Line temp_line;
-  int i = 0;
-  int buf_pos = 0;
-  int line_pos = 0;
-  int fd = open(filename, O_RDONLY);
-  
-  if (fd == -1) {
-    perror("open");
-    return -1;
-  }
-
-  //Allocating memory for n bytes + \0 to bufferize the temp buffer
-  char *temp = malloc(buf->size + 1);
-
-  read(fd, temp, buf->size);
-  temp[buf->size] = '\0';
-  
-  //Counting Rows
-  while (temp[buf_pos] != '\0') {
-    if (temp[buf_pos] == '\n') {
-      buf->rows++;
-      buf_pos++;
-    }
-    buf_pos++;
-  }
-  buf->rows++;
-  buf_pos = 0;
-
-  //Allocating memory for array of structures
-  buf->lines = malloc(sizeof(Line) * buf->rows);
-
-  // Filling the array
-  while (temp[buf_pos] != '\0') {
-    if (temp[buf_pos] == '\n') {
-      str[line_pos] = '\n';
-      init_line(str, &temp_line);
-      buf->lines[i] = temp_line;
-      line_pos = 0;
-      buf_pos++;
-      i++;
-    }
-    str[line_pos++] = temp[buf_pos++];
-  }
-  if (temp[buf_pos] == '\0') {
-    str[line_pos] = '\n';
-    init_line(str, &temp_line);
-    buf->lines[i] = temp_line;
-  }
-  // Free the temp buffer to avoid segfault`s
-  free(temp_line.data);
-  buf->current_row = 0;
-  buf->current_line = buf->lines;
-  return 0;
-}
-
-void move_up(Buffer *buf) {
-  if (buf->current_row != 0) {
-    buf->current_line = &buf->lines[--buf->current_row];
-  }
-}
-
-void move_down(Buffer *buf) {
-  if (buf->current_row != buf->rows - 1) {
-    buf->current_line = &buf->lines[++buf->current_row];
-  }
-}
-
-void show_current(Buffer *buf) {
-  printf("%s\n", buf->current_line->data);
-}
 
 int main(int argc, char **argv) {
-  char c;
   Editor Qvi;
+  int fd;
   if (argc == 2) {
+    if ((fd = open(argv[1], O_RDONLY)) == -1 ) {
+      fd = open(argv[1], O_WRONLY | O_CREAT, 0644);
+    }
+
     Qvi.filename = argv[1];
   } 
   else {
     printf("usage: ./qvi *file*\n");
     return 1;
   }
+  close(fd);
 
-  Qvi.buf = malloc(sizeof(Buffer));
-  init_buffer(Qvi.buf, Qvi.filename);
+  init_editor(&Qvi);
 
-  tcgetattr(0, &orig_termios);
-  enable_raw_mode();
-
-  while (1) {
-    c = Read_Key();
-    switch (c) {
-      case 'k':
-        move_up(Qvi.buf);
-        break;
-
-      case 'j':
-        move_down(Qvi.buf);
-        break;
-
-      case 'p':
-        show_current(Qvi.buf);
-        break;
-
-      case KEY_CTRL_C:
-        disable_raw_mode();
-        break;
-      default:
-        if (c != 0) {
-          printf("%d\n", c);
-        }
-    }
-  }
+  normal_mode(&Qvi);
   return 0;
-}
-
-void free_buffer(Buffer *buf) {
-  int i;
-  for (i = 0; i < buf->rows;i++) {
-    free(buf->lines[i].data);
-  }
-  free(buf->lines);
-  buf->current_line = NULL;
 }
