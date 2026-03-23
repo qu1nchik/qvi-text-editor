@@ -150,7 +150,7 @@ void move_right(Editor *ed) {
   // Moving the x + max_x values
     ed->cur->x++;
 
-    if (ed->cur->max_x < ed->cur->x) {
+    if (ed->cur->max_x < ed->cur->x + ed->viewport->col_offset) {
       ed->cur->max_x = ed->cur->x + ed->viewport->col_offset;
     }
   }

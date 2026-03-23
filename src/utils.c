@@ -34,15 +34,19 @@ void enable_raw_mode() {
 }
 
 void disable_raw_mode() {
+  orig_termios.c_lflag |= ECHO;
+  orig_termios.c_lflag |= ICANON;
+  orig_termios.c_lflag |= ISIG;
   tcsetattr(0, TCSAFLUSH, &orig_termios);
+  printf("%s", ALT_BUFFER_OFF);
 }
 
 void free_editor(Editor *ed) {
   if (!ed) return;
-  
+
   printf("%s", CLEAR_AND_GOTO_START);
   fflush(stdout);
-  
+
   if (ed->buf) {
     if (ed->buf->lines) {
       for (int i = 0; i < ed->buf->rows; i++) {
@@ -62,7 +66,7 @@ void free_editor(Editor *ed) {
     free(ed->cur);
     ed->cur = NULL;
   }
-  
+
   if (ed->viewport) {
     free(ed->viewport);
     ed->viewport = NULL;
@@ -85,17 +89,18 @@ void draw_screen(Editor *ed) {
       int start = ed->viewport->col_offset;
       int chars_left = len - start;
 
-      // if longer than viewport
+      // if longer than gorizontal size of screen
       if (chars_left > ed->viewport->screen_cols) {
         printf("%.*s",ed->viewport->screen_cols, ed->buf->lines[i].data + ed->viewport->col_offset);
       }
-      
-      // if shorter than viewport
+
+      // if shorter than gorizontal size of screen
       else {
+        // if not visible at all
         if (len <= ed->viewport->col_offset) {
           printf("\n");
         }
-
+        // if visible by a part or fully
         else {
           printf("%s", ed->buf->lines[i].data + ed->viewport->col_offset);
         }
@@ -104,16 +109,17 @@ void draw_screen(Editor *ed) {
   }
   //Drawing with tildes(if size of file is less than size of viewport)
   else {
-
     // Drawing data
     for (i = 0; i < ed->buf->rows; i++) {
       printf("%s", ed->buf->lines[i].data);
     }
-    
+
     // Drawing tildes
     for (i = 0; i < lines_needed_tilde; i++) {
-      if (ed->cur->x - 1 == i) {
-        printf("\n");
+      if (ed->cur->y - (1 + ed->buf->current_row) == i) {
+        if (ed->buf->rows == 0) {
+          printf("\n");
+        }
       }
 
       else {
@@ -122,16 +128,30 @@ void draw_screen(Editor *ed) {
     }
   }
 
-  if (ed->current_mode == NORMAL) {
-    printf("--< NORMAL >-- \t\t\t\t\t\t max: %d, offset: %d, x: %d", ed->cur->max_x, ed->viewport->col_offset, ed->cur->x);
+  if (ed->current_mode == COMMAND) {
+    printf(":%s", ed->cmd_buf);
+    printf("\033[%d;%df", ed->viewport->screen_rows, ed->cmd_pos + 2);
   }
-  
-  if (ed->current_mode == INSERT) {
-    printf("--< INSERT >-- \t\t\t\t\t\t %d, %d, %d ", ed->buf->current_line->length, ed->buf->current_line->size, ed->buf->current_line->capacity);
+
+  else {
+    if (ed->current_mode == NORMAL) {
+      if (ed->is_error) {
+        printf("Not An Editor Command!");
+        ed->is_error = false;
+      }
+      else {
+        printf("--< NORMAL >-- \t\t\t\t\t\t %d", ed->buf->rows);
+      }
+    }
+
+    if (ed->current_mode == INSERT) {
+      printf("--< INSERT >-- \t\t\t\t\t\t ");
+    }
+
+    // Moving the cursor in absolute position and show it
+    printf("\033[%d;%df", ed->cur->y, ed->cur->x);
+    printf("%s", SHOW_CURSOR);
   }
-  // Moving the cursor in absolute position and show it
-  printf("\033[%d;%df", ed->cur->y, ed->cur->x);
-  printf("%s", SHOW_CURSOR);
-  
+
   fflush(stdout);
 }

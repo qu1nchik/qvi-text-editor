@@ -23,12 +23,11 @@ void normal_mode(Editor *ed) {
       case 'l':
         move_right(ed);
         break;
-      
-      // INSERT COMBINATIONS:
-      case 'q':
-        free_editor(ed);
-        disable_raw_mode();
-        return;
+
+      // Turning on the command mode
+      case ':':
+        command_mode(ed);
+        break;
     }
   }
 }
