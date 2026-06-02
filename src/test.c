@@ -23,8 +23,8 @@ typedef struct {
 } Line;
 
 typedef struct {
-  Line **lines;
-    // array of ptr`s to lines
+  Line *lines;
+    // Lines array
 
   Line *current_line;
     // Pointer to the current line in the text

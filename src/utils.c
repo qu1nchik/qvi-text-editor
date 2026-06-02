@@ -1,18 +1,18 @@
 uint8_t Read_Key() {
   uint8_t c;
   int n;
+  while (1) {
+    n = read(0, &c, 1);
 
-  n = read(0, &c, 1);
+    if (n == 1 && c != 0) { 
+      return c;
+    }
 
-  if (n == 1) { 
-    return c;
+    if (n == -1) {
+      perror("read");
+      exit(1);
+    }
   }
-
-  if (n == -1) {
-    perror("read");
-    exit(1);
-  }
-  return 0;
 }
 
 void enable_raw_mode() {
@@ -50,8 +50,9 @@ void free_editor(Editor *ed) {
   if (ed->buf) {
     if (ed->buf->lines) {
       for (int i = 0; i < ed->buf->rows; i++) {
-        if (ed->buf->lines[i].data) {
-          free(ed->buf->lines[i].data);
+        if (ed->buf->lines[i]->data) {
+          free(ed->buf->lines[i]->data);
+          free(ed->buf->lines[i]);
         }
       }
 
@@ -73,85 +74,69 @@ void free_editor(Editor *ed) {
   }
 }
 
-void draw_screen(Editor *ed) {
-
-  printf("%s",CLEAR_AND_GOTO_START);
-
-  // Drawing
-  int i;
-  int max_line = ed->buf->rows;
-  int lines_needed_tilde = ed->viewport->screen_rows - ed->buf->rows - 1;
-
-  // Normal Drawing
-  if (ed->viewport->screen_rows < ed->buf->rows) {
-    for (i = ed->viewport->row_offset; i < ed->viewport->screen_rows - 1 + ed->viewport->row_offset && i < max_line; i++) {
-      int len = ed->buf->lines[i].length;
-      int start = ed->viewport->col_offset;
-      int chars_left = len - start;
-
-      // if longer than gorizontal size of screen
-      if (chars_left > ed->viewport->screen_cols) {
-        printf("%.*s",ed->viewport->screen_cols, ed->buf->lines[i].data + ed->viewport->col_offset);
-      }
-
-      // if shorter than gorizontal size of screen
-      else {
-        // if not visible at all
-        if (len <= ed->viewport->col_offset) {
-          printf("\n");
-        }
-        // if visible by a part or fully
-        else {
-          printf("%s", ed->buf->lines[i].data + ed->viewport->col_offset);
-        }
-      }
-    }
-  }
-  //Drawing with tildes(if size of file is less than size of viewport)
-  else {
-    // Drawing data
-    for (i = 0; i < ed->buf->rows; i++) {
-      printf("%s", ed->buf->lines[i].data);
-    }
-
-    // Drawing tildes
-    for (i = 0; i < lines_needed_tilde; i++) {
-      if (ed->cur->y - (1 + ed->buf->current_row) == i) {
-        if (ed->buf->rows == 0) {
-          printf("\n");
-        }
-      }
-
-      else {
-        printf("~\n");
-      }
-    }
-  }
-
+static void draw_mode(Editor *ed) {
+  // COMMAND
   if (ed->current_mode == COMMAND) {
     printf(":%s", ed->cmd_buf);
     printf("\033[%d;%df", ed->viewport->screen_rows, ed->cmd_pos + 2);
   }
 
   else {
+    // NORMAL
     if (ed->current_mode == NORMAL) {
       if (ed->is_error) {
         printf("Not An Editor Command!");
         ed->is_error = false;
       }
       else {
-        printf("--< NORMAL >-- \t\t\t\t\t\t %d", ed->buf->rows);
+        printf("--< NORMAL >-- \t\t\t x :%d, len :%d", ed->cur->x, ed->buf->current_line->length);
       }
     }
-
+    // INSERT
     if (ed->current_mode == INSERT) {
-      printf("--< INSERT >-- \t\t\t\t\t\t ");
+      printf("--< INSERT >-- ");
     }
 
     // Moving the cursor in absolute position and show it
     printf("\033[%d;%df", ed->cur->y, ed->cur->x);
     printf("%s", SHOW_CURSOR);
   }
+}
 
+void draw_screen(Editor *ed) {
+  printf("%s",CLEAR_AND_GOTO_START);
+  int drawn = 0;
+
+  // Normal Drawing
+  for (int i = ed->viewport->row_offset; i < ed->viewport->screen_rows - 1 + ed->viewport->row_offset && i < ed->buf->rows; i++) {
+    Line *curr = ed->buf->lines[i];
+    int len = curr->length;
+    int start = ed->viewport->col_offset;
+    int chars_left = len - start;
+
+    // current line is longer than gorizontal size of screen
+    if (chars_left > ed->viewport->screen_cols) {
+      printf("%.*s",ed->viewport->screen_cols, curr->data + start);
+      drawn++;
+    }
+
+    // shorter
+    else {
+      // not visible at all
+      if (len <= start) {
+        printf("\n");
+        drawn++;
+      }
+      // visible by a part or fully
+      else {
+        printf("%.*s\n", len - start, curr->data + start);
+        drawn++;
+      }
+    }
+  }
+  for (int i = drawn; i < ed->viewport->screen_rows - 1; i++) {
+    printf("\n");
+  }
+  draw_mode(ed);
   fflush(stdout);
 }

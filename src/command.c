@@ -11,12 +11,15 @@ static void cmd_execute(Editor *ed, CmdFunc *manual);
 static bool is_valid(char c);
 
 CmdFunc cmd_table[] = {
-  [CMD_WRITE] = cmd_write, 
+  [CMD_WRITE] = cmd_write,
   [CMD_QUIT] = cmd_quit
 };
 void command_mode(Editor *ed) {
   ed->current_mode = COMMAND;
   int c;
+  ed->cmd_buf[0] = '\0';
+  ed->cmd_pos = 0;
+  draw_screen(ed);
   while (1) {
     c = Read_Key();
     if (c != KEY_CTRL_C && c != KEY_ESC) {
@@ -24,7 +27,8 @@ void command_mode(Editor *ed) {
       case KEY_BACKSP:
         if (ed->cmd_pos == 0) {
           normal_mode(ed);
-        } else {
+        }
+          else {
           ed->cmd_buf[--ed->cmd_pos] = '\0';
         }
         draw_screen(ed);
@@ -36,10 +40,8 @@ void command_mode(Editor *ed) {
         break;
 
       default:
-        if (c != 0) {
           ed->cmd_buf[ed->cmd_pos++] = c;
           ed->cmd_buf[ed->cmd_pos] = '\0';
-        }
         draw_screen(ed);
       }
     }
@@ -77,9 +79,7 @@ static void cmd_parse(Editor *ed) {
         continue;
       }
 
-      else {
-        goto fatal;
-      }
+      else goto fatal;
     }
 
     // Quit combos
@@ -120,11 +120,11 @@ static void cmd_write(Editor *ed) {
   int pos = 0;
 
   for (i = 0; i < ed->buf->rows; i++) {
-    for (j = 0; ed->buf->lines[i].data[j] != '\0'; j++) {
-      text[pos++] = ed->buf->lines[i].data[j];
+    for (j = 0; j < ed->buf->lines[i]->length; j++) {
+      text[pos++] = ed->buf->lines[i]->data[j];
     }
+    text[pos++] = '\n';
   }
-
   write(fd, text, pos);
   close(fd);
 }
@@ -137,7 +137,6 @@ static void cmd_quit(Editor *ed) {
 
 static bool is_valid(char c) {
   char valid_chars[2] = {'w', 'q'};
-  int res;
   for (int i = 0; i < sizeof(valid_chars) / sizeof(char); i++) {
     if (valid_chars[i] == c) {
       return true;
